@@ -22,10 +22,10 @@ async def fun(request):
 		responseTime = random.random() * 0.2 + 0.1
 		await asyncio.sleep(responseTime)
 
-		return web.json_response({"Name": "worker", "Status": "OK", "Number of words": result}, status = 200)
+		return web.json_response({"Name": "worker3", "Status": "OK", "Number of words": result}, status = 200)
 
 	except Exception as ex:
-		return web.json_response({"Name": "worker", "Error": str(ex)}, status = 500)
+		return web.json_response({"Name": "worker3", "Error": str(ex)}, status = 500)
 
 app = web.Application()
 app.router.add_routes(routes)
