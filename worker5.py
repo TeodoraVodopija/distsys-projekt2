@@ -11,16 +11,14 @@ routes = web.RouteTableDef()
 async def fun(request):
 	try:
 		#network delay 0.1 - 0.3 s (simulation)
-		requestTime = random.random() * 0.2 + 0.1
-		await asyncio.sleep(requestTime)
+		await asyncio.sleep(random.uniform(0.1, 0.3))
 
 		#counter of words
 		jsonData = await request.json()
 		result = len(re.sub("[" + string.punctuation + "]", "", jsonData.get("data")).split())
 
 		#network delay 0.1 - 0.3 s (simulation)
-		responseTime = random.random() * 0.2 + 0.1
-		await asyncio.sleep(responseTime)
+		await asyncio.sleep(random.uniform(0.1, 0.3))
 
 		return web.json_response({"Name": "worker3", "Status": "OK", "Number of words": result}, status = 200)
 

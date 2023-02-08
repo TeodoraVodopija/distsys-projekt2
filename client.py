@@ -1,42 +1,39 @@
-#import packages (constraints)
 import asyncio
-import aiofiles
-import json
 import aiohttp
-from aiohttp import web
+import pandas as pd
 
-routes = web.RouteTableDef()
+# Generate list of client IDs
+client_ids = list(range(1, 101))
 
-async def process_data(client, code):
-    print(f"{client} - average number of letters in python code: "
-          f"{sum(len(word) for word in code.split()) / len(code.split())}")
+# Load the dataframe
+df = pd.read_json("file-000000000040.json", lines=True)
+print("Dataframe loaded.")
 
-@routes.get("/dataJson")
-async def json_data(request):
-    try:
-        async with aiohttp.ClientSession() as session:
-            #read .json file (by lines)
-            async with aiofiles.open('file-000000000040.json', mode = 'r') as file_data:
-                read_data = [await file_data.readline() for _ in range(10)]
-                whole_data = [json.loads(line) for line in read_data]
-                client_ids = [f"Client {i+1}" for i in range(10)]
+# Calculate rows per client
+rows_per_client = len(df) // len(client_ids)
 
-                #empty dict and list - ready for receiving data
-                database = {}
-                tasks = []
+# Split the dataframe into chunks for each client
+df_chunks = [df.iloc[i:i + rows_per_client] for i in range(0, len(df), rows_per_client)]
 
-                #content - python code for each client in .json data
-                for i, item in enumerate(whole_data):
-                    db_item = {"python_code": item["content"]}
-                    database[client_ids[i]] = db_item
-                    task = asyncio.create_task(process_data(client_ids[i], db_item["python_code"]))
-                    tasks.append(task)
-                await asyncio.gather(*tasks)
-            return web.json_response(database, status = 200)
+# Create a dict of client IDs and their code (by adding code from rows as value to ID property)
+clients = {idx: chunk["content"].tolist() for idx, chunk in zip(client_ids, df_chunks)}
 
-    except Exception as ex:
-        return web.json_response({"Name": "client", "error": str(ex)}, status = 500)
+# Define an async function for processing codes
+async def process_codes(client_id, codes):
+    async with aiohttp.ClientSession() as session:
+        response = await session.get("http://127.0.0.1:8080/", json={"client": client_id, "codes": codes})
+        result = await response.json()
+        return result
 
-app = web.Application()
-app.router.add_routes(routes)
-web.run_app(app, port = 8091)
+async def main():
+    # Send requests for code processing
+    print("Sending data...")
+    tasks = [process_codes(client_id, codes) for client_id, codes in clients.items()]
+    results = await asyncio.gather(*tasks)
+    print("Results of data processing for all clients retrieved.")
+
+    # Log the average number of letters for clients' code
+    for result in results:
+        print(f"Average code length for client with ID {result['client']} is {result['averageWordcount']}")
+
+asyncio.run(main())
