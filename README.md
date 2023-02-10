@@ -23,6 +23,5 @@ Dependencies:
 - asyncio 
 - aiohttp 
 - aiofiles
-- json
 - pandas 
 - Python standard libraries (random, logging, re, string)
