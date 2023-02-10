@@ -8,7 +8,7 @@ import string
 routes = web.RouteTableDef()
 
 @routes.get("/")
-async def fun(request):
+async def word_counter(request):
 	try:
 		#network delay 0.1 - 0.3 s (simulation)
 		await asyncio.sleep(random.uniform(0.1, 0.3))
