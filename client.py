@@ -19,14 +19,10 @@ clients_data = {}
 for i, client_id in enumerate(client_IDs):
     clients_data[client_id] = code[(i * lines_per_client):((i * lines_per_client) + lines_per_client)]
 
-# Testing for client n.38
-# print(f"client38: {clients_data['client38']}")
-
-
 #calculate the average number of letters in python code for every client
 async def calculate_average_number_of_letters(client_ID, client_code):
     average_letters = (sum(len(line) for line in client_code)) / len(client_code)
-    print(f"Client {client_ID} - average number of letters in python code: {average_letters}.")
+    print(f"{client_ID} - average number of letters in python code: {average_letters}.")
 
 async def data_send():
     #send database to master
