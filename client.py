@@ -1,39 +1,42 @@
 #import packages (constraints)
-import asyncio
 import aiohttp
-import pandas as pd
+import asyncio
+import json
 
-#generate the list od IDs - 10000
-client_IDs = list(range(1, 10001))
+#generate list of 10000 client IDs
+client_IDs = [f"Client {i+1}" for i in range(10000)]
 
-#reading .json file (dataset)
-data = pd.read_json("file-000000000040.json", lines = True)
+#reading data from .json file
+with open("file-000000000040.json", "r") as file:
+    #reading first 10000 lines from .json file
+    code = [json.loads(line)['content'] for line in file.readlines()[:10000]]
 
-#calculate the number of rows per client
-rows_per_client = int(len(data) / len(client_IDs))
+#dividing the content of codes evenly among the 10000 clients
+lines_per_client = len(code) // len(client_IDs)
 
-#assigning IDs to clients
-clients = {id: [] for id in client_IDs}
+#creating a dictionary of client IDs and the lines assigned to each client
+clients_data = {}
+for i, client_id in enumerate(client_IDs):
+    clients_data[client_id] = code[(i * lines_per_client):((i * lines_per_client) + lines_per_client)]
 
-#assigning each client python code
-for client_ID, py_code in clients.items():
-    for _, row in data.iloc[((client_ID - 1) * rows_per_client) + 1 : (((client_ID - 1) * rows_per_client) + rows_per_client) + 1].iterrows():
-        py_code.append(row.get("content")) #content - python code
+# Testing for client n.38
+# print(f"client38: {clients_data['client38']}")
 
-#initial empty lists
-tasks = []
-results = []
 
-async def request_code_process():
+#calculate the average number of letters in python code for every client
+async def calculate_average_number_of_letters(client_ID, client_code):
+    average_letters = (sum(len(line) for line in client_code)) / len(client_code)
+    print(f"Client {client_ID} - average number of letters in python code: {average_letters}.")
+
+async def data_send():
+    #send database to master
+    db = clients_data
+
+    tasks = [calculate_average_number_of_letters(client_ID, client_code) for client_ID, client_code in clients_data.items()]
+    await asyncio.gather(*tasks)
+
     async with aiohttp.ClientSession() as session:
-        for client_ID, py_code in clients.items():
-            tasks.append(asyncio.create_task(
-                session.get("http://127.0.0.1:8080/", json = {"Client": client_ID, "Python code": py_code})))
-        results = await asyncio.gather(*tasks)
-        results = [await result.json() for result in results]
+        async with session.post("http://localhost:8080/data_send", json = db) as res:
+            print(res.status)
 
-        #print average number of words in python files for each client
-        for result in results:
-            print("Average python code length for client with ID ", result.get("client"), " is ", result.get("averageWordcount"), ".")
-
-asyncio.get_event_loop().run_until_complete(request_code_process())
+asyncio.run(data_send())
