@@ -1,68 +1,102 @@
 #import packages (constraints)
 import aiohttp
-from aiohttp import web
 import asyncio
-import logging
 import random
+import time
+from aiohttp import web
 
-logging.basicConfig(level = logging.INFO)
-
-NO_workers = random.randint(5, 10) #random 5-10 workers
-sample_size = 1000 #sample size, task for worker
-max_NO_requests = 10000 #max number of data
-received_requests = 0
-received_responses = 0
-sent_tasks = 0
-received_tasks = 0
-
-#number of workers
-workers = {"Worker " + str(id): [] for id in range(0, NO_workers)}
+max_number_of_workers = 10
+start_time = time.monotonic_ns()
 
 routes = web.RouteTableDef()
 
-@routes.get("/")
-async def handler_of_tasks(request):
-    try:
-        global received_responses
-        global sent_tasks
-        logging.info(f"Current requests status: {int(received_requests / max_NO_requests)}")
+@routes.post("/data_send")
+async def receive_data(request):
+    #receiving incoming request data from client
+    data = await request.json()
 
-        client_data = await request.json()
+    #extracting all the lines from json
+    lines = list(data.values())
 
-        codes = "\n".join(client_data.get("Python code"))
-        code_split_newline = codes.split("\n")
-        client_data["Python code"] = ["\n".join(code_split_newline[i : i + sample_size])
-            for i in range(0, len(code_split_newline), sample_size)]
+    #list of worker ports
+    worker_ports = [8081, 8082, 8083, 8084, 8085, 8086, 8087, 8088, 8089, 8090]
 
-        tasks = []
-        results = []
-        async with aiohttp.ClientSession() as session:
-            active_worker = 1
-            for i in range(len(client_data.get("Python code"))):
-                task = asyncio.create_task(
-                    session.get(f"http://localhost: {8080 + active_worker} /worker_ {active_worker}",
-                        json = {"ID": client_data.get("client_ID"), "Python code": client_data.get("Python code")[i]},
-                    )
-                )
-                sent_tasks += 1
-                tasks.append(task)
-                workers["Worker - ID: " + str(active_worker)].append(tasks)
+    #listen for signals from the worker nodes if they are ready
+    workers = {}
+    async with aiohttp.ClientSession() as session:
+        worker_ready = [session.get(f"http://localhost:{port}/worker_ready") for port in worker_ports]
+        worker_ready = await asyncio.gather(*worker_ready)
+        for port, resp in zip(worker_ports, worker_ready):
+            if resp.status == 200:
+                #if worker is ready, add it to the list of workers, assign ID based on port number
+                worker_id = f"server {port}"
+                workers[worker_id] = port
+        print(f"Received worker ready signals from: {list(workers.keys())}")
 
-                if active_worker != NO_workers: active_worker += 1
+        #selecting 3 to 5 workers randomly
+        select_workers = random.sample(list(workers.keys()), random.randint(3, 5))
+        print(f"Selected workers: {select_workers}")
 
-            results = await asyncio.gather(*tasks)
-            results = [await data.json() for data in results]
+        #send data to selected workers
+        if workers:
+            task_count = {}  #empty dict to keep track of the number of sent tasks for each worker
+            while lines:
+                async with aiohttp.ClientSession() as session:
+                    tasks = []
+                    for worker_id in select_workers:
+                        port = workers[worker_id]
+                        index = worker_ports.index(port)
+                        data_to_send = lines[index * 1000: index * 1000 + 1000]  #select 1000 lines of data
+                        if data_to_send:  #check if data_to_send is not empty
+                            start_time = time.monotonic_ns()  #start a timer for each task
+                            task = asyncio.create_task(session.post(
+                                f"http://localhost:{port}/receive_data",
+                                json = {"data": data_to_send, "worker_id": worker_id}))  #create task to send data
+                            tasks.append(task)
+                    await asyncio.gather(*tasks)
+                    for port in task_count:
+                        print(f"Total tasks sent to worker{port}: {task_count[port]}")
+                    lines = lines[3:]
+        else:
+            print("No workers are ready.")
 
-            AVG_number_of_words = [result.get("number_of_words") for result in results]
-            AVG_number_of_words = int(sum(AVG_number_of_words) / len(client_data.get("code")))
+        #if all data has been sent, print a message
+        if not lines:
+            print("No more data to send.")
 
-            received_responses += 1
+    #return a response to the client indicating that the data has been received
+    return web.Response(text = "Data received.")
 
-        return web.json_response({"Name": "master", "Status": "OK", "Average words per client": AVG_number_of_words}, status = 200)
+#define a dictionary to store the word counts received from the worker nodes
+word_counts = {}
 
-    except Exception as ex:
-        return web.json_response({"Name": "master", "Error": str(ex)}, status = 500)
+@routes.post("/receive_worker_word_count")
+async def receive_word_count(request):
+    #receive the word count data from the worker
+    data = await request.json()
+    #extract the worker port and word count from the received data
+    worker_port = data["worker_port"]
+    word_count = data["word_count"]
 
-app = web.Application()
-app.router.add_routes(routes)
+    # Log the current time when receiving the word count from the worker
+    current_time = time.monotonic_ns()  #timer ends here
+    print(f"Received word count from {worker_port} : {word_count} words counted.")
+    elapsed_time = current_time - start_time  #calculate the elapsed time
+    # print(f"Elapsed time between sending and receiving data: {elapsed_time} ns")
+    print(f"Elapsed time between sending and receiving data: {elapsed_time} ns ({elapsed_time / 1000000:.2f} ms)")
+
+    #increment the count of completed tasks from the worker
+    if worker_port in word_counts:
+        word_counts[worker_port] += 1
+    else:
+        word_counts[worker_port] = 1
+
+    #print the total number of completed tasks from the worker
+    print(f"Total tasks returned {worker_port}: {word_counts[worker_port]}")
+
+    return web.Response(status = 200)
+
+
+app = web.Application(client_max_size = 1024 * 1024 * 200)
+app.add_routes(routes)
 web.run_app(app, port = 8080)
